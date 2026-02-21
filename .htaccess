@@ -1,0 +1,13 @@
+RewriteEngine On
+
+# Don't rewrite requests for existing files or directories
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Don't rewrite admin or API requests
+RewriteRule ^admin$ admin.php [L,QSA]
+RewriteRule ^api$ api.php [L,QSA]
+
+# Rewrite clean URLs to index.php
+# e.g., /akoriapink -> index.php?page=akoriapink
+RewriteRule ^([a-z0-9\-]+)$ index.php?page=$1 [L,QSA]

@@ -1,0 +1,174 @@
+/* List of Links (LoL) - Page Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    font-family: var(--font-family, 'Inter', sans-serif);
+    color: var(--text-color, #FFFFFF);
+    background: var(--bg, #780016);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.container {
+    width: 100%;
+    max-width: 680px;
+    padding: 48px 24px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+}
+
+/* Avatar */
+.avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-bottom: 16px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    flex-shrink: 0;
+}
+
+.avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Title */
+.title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    text-align: center;
+}
+
+/* Bio */
+.bio {
+    font-size: 14px;
+    text-align: center;
+    margin-bottom: 28px;
+    opacity: 0.85;
+    line-height: 1.5;
+    max-width: 480px;
+}
+
+/* Links */
+.links {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex-grow: 1;
+}
+
+.link-button {
+    display: block;
+    width: 100%;
+    padding: 16px 24px;
+    text-decoration: none;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: var(--button-radius, 50px);
+    transition: transform 0.15s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.link-button:active {
+    transform: scale(0.98);
+}
+
+/* Outline button style */
+.link-button.outline {
+    background: transparent;
+    border: 2px solid var(--button-color, #FFFFFF);
+    color: var(--button-text-color, #FFFFFF);
+}
+
+.link-button.outline:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: scale(1.02);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Filled button style */
+.link-button.filled {
+    background: var(--button-color, #FFFFFF);
+    border: 2px solid transparent;
+    color: var(--button-text-color, #000000);
+}
+
+.link-button.filled:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Soft shadow button style */
+.link-button.shadow {
+    background: var(--button-color, #FFFFFF);
+    border: none;
+    color: var(--button-text-color, #000000);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.link-button.shadow:hover {
+    transform: scale(1.02);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* Footer */
+.footer {
+    margin-top: auto;
+    padding-top: 48px;
+    text-align: center;
+}
+
+.admin-link {
+    color: var(--text-color, #FFFFFF);
+    opacity: 0.3;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    transition: opacity 0.2s ease;
+}
+
+.admin-link:hover {
+    opacity: 0.6;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+    .container {
+        padding: 32px 16px 24px;
+    }
+
+    .avatar {
+        width: 80px;
+        height: 80px;
+    }
+
+    .title {
+        font-size: 18px;
+    }
+
+    .link-button {
+        padding: 14px 20px;
+        font-size: 15px;
+    }
+}

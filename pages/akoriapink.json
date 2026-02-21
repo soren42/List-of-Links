@@ -1,0 +1,38 @@
+{
+    "slug": "akoriapink",
+    "title": "@akoriapink",
+    "bio": "I am a Twitch Streamer and Artist, hit any of the links below to follow along :D",
+    "avatar": "https://ugc.production.linktr.ee/alyXo2ilSyX3dVAzEvaj_uaG4p0oj8TS87C70",
+    "theme": {
+        "background_color": "#780016",
+        "background_color_end": "#2d0008",
+        "text_color": "#FFFFFF",
+        "button_style": "outline",
+        "button_color": "#FFFFFF",
+        "button_text_color": "#FFFFFF",
+        "button_radius": "50px",
+        "font_family": "'Inter', sans-serif"
+    },
+    "links": [
+        {
+            "title": "Discord Server",
+            "url": "https://discord.gg/edryPF3yK2"
+        },
+        {
+            "title": "TikTok",
+            "url": "https://vm.tiktok.com/ZMdhPdgVB/"
+        },
+        {
+            "title": "Twitch",
+            "url": "http://Twitch.tv/akoriapink"
+        },
+        {
+            "title": "Youtube",
+            "url": "https://www.youtube.com/channel/UCvmQ9ulw2UVkD_VtGu1SJCw/featured"
+        },
+        {
+            "title": "Akoria's Instagram",
+            "url": "https://instagram.com/akoriapink?utm_medium=copy_link"
+        }
+    ]
+}
