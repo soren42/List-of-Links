@@ -1,59 +1,138 @@
 /**
  * List of Links (LoL) - Admin JavaScript
  *
- * Handles page management, form interactions, live preview, and API calls.
+ * Handles authentication, page management, form interactions,
+ * icon detection, live preview, and API calls.
  */
 
 (function () {
     'use strict';
 
-    // --- State ---
-    let currentSlug = null; // null = new page, string = editing existing
-    let linkCounter = 0;
+    // ─── Well-Known Service Icon Map ─────────────────────────
+    const ICON_MAP = {
+        'discord.gg':        'fa-brands fa-discord',
+        'discord.com':       'fa-brands fa-discord',
+        'tiktok.com':        'fa-brands fa-tiktok',
+        'vm.tiktok.com':     'fa-brands fa-tiktok',
+        'twitch.tv':         'fa-brands fa-twitch',
+        'youtube.com':       'fa-brands fa-youtube',
+        'youtu.be':          'fa-brands fa-youtube',
+        'instagram.com':     'fa-brands fa-instagram',
+        'twitter.com':       'fa-brands fa-x-twitter',
+        'x.com':             'fa-brands fa-x-twitter',
+        'facebook.com':      'fa-brands fa-facebook',
+        'fb.com':            'fa-brands fa-facebook',
+        'github.com':        'fa-brands fa-github',
+        'linkedin.com':      'fa-brands fa-linkedin',
+        'snapchat.com':      'fa-brands fa-snapchat',
+        'reddit.com':        'fa-brands fa-reddit',
+        'pinterest.com':     'fa-brands fa-pinterest',
+        'spotify.com':       'fa-brands fa-spotify',
+        'open.spotify.com':  'fa-brands fa-spotify',
+        'soundcloud.com':    'fa-brands fa-soundcloud',
+        'patreon.com':       'fa-brands fa-patreon',
+        'steam.com':         'fa-brands fa-steam',
+        'steampowered.com':  'fa-brands fa-steam',
+        'store.steampowered.com': 'fa-brands fa-steam',
+        'tumblr.com':        'fa-brands fa-tumblr',
+        'whatsapp.com':      'fa-brands fa-whatsapp',
+        'wa.me':             'fa-brands fa-whatsapp',
+        'telegram.org':      'fa-brands fa-telegram',
+        't.me':              'fa-brands fa-telegram',
+        'kick.com':          'fa-brands fa-kickstarter',
+        'vimeo.com':         'fa-brands fa-vimeo',
+        'behance.net':       'fa-brands fa-behance',
+        'dribbble.com':      'fa-brands fa-dribbble',
+        'deviantart.com':    'fa-brands fa-deviantart',
+        'etsy.com':          'fa-brands fa-etsy',
+        'paypal.com':        'fa-brands fa-paypal',
+        'paypal.me':         'fa-brands fa-paypal',
+        'ko-fi.com':         'fa-solid fa-mug-hot',
+        'cash.app':          'fa-solid fa-dollar-sign',
+        'venmo.com':         'fa-solid fa-dollar-sign',
+        'apple.com':         'fa-brands fa-apple',
+        'music.apple.com':   'fa-brands fa-itunes-note',
+        'threads.net':       'fa-brands fa-threads',
+        'mastodon.social':   'fa-brands fa-mastodon',
+        'bsky.app':          'fa-brands fa-bluesky',
+    };
 
-    // --- DOM Elements ---
-    const viewList = document.getElementById('view-list');
+    function detectIcon(url) {
+        try {
+            const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+            if (ICON_MAP[host]) return ICON_MAP[host];
+            // Try parent domain
+            const parts = host.split('.');
+            if (parts.length > 2) {
+                const parent = parts.slice(-2).join('.');
+                if (ICON_MAP[parent]) return ICON_MAP[parent];
+            }
+        } catch (e) {
+            // invalid URL, ignore
+        }
+        return null;
+    }
+
+    // ─── State ───────────────────────────────────────────────
+    let currentSlug = null;
+    let linkCounter = 0;
+    let authType = null; // 'system' | 'user' | null
+
+    // ─── DOM Elements ────────────────────────────────────────
+    const viewSetup  = document.getElementById('view-setup');
+    const viewLogin  = document.getElementById('view-login');
+    const viewAdmin  = document.getElementById('view-admin');
+    const viewList   = document.getElementById('view-list');
     const viewEditor = document.getElementById('view-editor');
-    const pageGrid = document.getElementById('page-grid');
-    const emptyState = document.getElementById('empty-state');
-    const editorTitle = document.getElementById('editor-title');
+
+    const pageGrid       = document.getElementById('page-grid');
+    const emptyState     = document.getElementById('empty-state');
+    const editorTitle    = document.getElementById('editor-title');
     const linksContainer = document.getElementById('links-container');
     const previewContent = document.getElementById('preview-content');
-    const toastEl = document.getElementById('toast');
+    const toastEl        = document.getElementById('toast');
+    const authBadge      = document.getElementById('auth-badge');
 
     // Buttons
     const btnNewPage = document.getElementById('btn-new-page');
-    const btnBack = document.getElementById('btn-back');
-    const btnSave = document.getElementById('btn-save');
+    const btnBack    = document.getElementById('btn-back');
+    const btnSave    = document.getElementById('btn-save');
     const btnAddLink = document.getElementById('btn-add-link');
+    const btnLogout  = document.getElementById('btn-logout');
 
     // Form fields
     const fields = {
-        slug: document.getElementById('field-slug'),
-        title: document.getElementById('field-title'),
-        bio: document.getElementById('field-bio'),
-        avatar: document.getElementById('field-avatar'),
-        bgColor: document.getElementById('field-bg-color'),
-        bgColorPicker: document.getElementById('field-bg-color-picker'),
-        bgColorEnd: document.getElementById('field-bg-color-end'),
-        bgColorEndPicker: document.getElementById('field-bg-color-end-picker'),
-        textColor: document.getElementById('field-text-color'),
-        textColorPicker: document.getElementById('field-text-color-picker'),
-        buttonColor: document.getElementById('field-button-color'),
-        buttonColorPicker: document.getElementById('field-button-color-picker'),
-        buttonTextColor: document.getElementById('field-button-text-color'),
+        slug:               document.getElementById('field-slug'),
+        title:              document.getElementById('field-title'),
+        bio:                document.getElementById('field-bio'),
+        avatar:             document.getElementById('field-avatar'),
+        userPassword:       document.getElementById('field-user-password'),
+        bgColor:            document.getElementById('field-bg-color'),
+        bgColorPicker:      document.getElementById('field-bg-color-picker'),
+        bgColorEnd:         document.getElementById('field-bg-color-end'),
+        bgColorEndPicker:   document.getElementById('field-bg-color-end-picker'),
+        textColor:          document.getElementById('field-text-color'),
+        textColorPicker:    document.getElementById('field-text-color-picker'),
+        buttonColor:        document.getElementById('field-button-color'),
+        buttonColorPicker:  document.getElementById('field-button-color-picker'),
+        buttonTextColor:    document.getElementById('field-button-text-color'),
         buttonTextColorPicker: document.getElementById('field-button-text-color-picker'),
-        buttonStyle: document.getElementById('field-button-style'),
-        buttonRadius: document.getElementById('field-button-radius'),
-        fontFamily: document.getElementById('field-font-family'),
-        avatarFile: document.getElementById('avatar-file'),
+        buttonStyle:        document.getElementById('field-button-style'),
+        buttonRadius:       document.getElementById('field-button-radius'),
+        fontFamily:         document.getElementById('field-font-family'),
+        avatarFile:         document.getElementById('avatar-file'),
     };
 
-    // --- Initialization ---
+    // ─── Initialization ──────────────────────────────────────
     btnNewPage.addEventListener('click', () => showEditor());
     btnBack.addEventListener('click', showList);
     btnSave.addEventListener('click', savePage);
     btnAddLink.addEventListener('click', () => addLinkItem('', ''));
+    btnLogout.addEventListener('click', logout);
+
+    // Setup form
+    document.getElementById('setup-form').addEventListener('submit', handleSetup);
+    document.getElementById('login-form').addEventListener('submit', handleLoginSubmit);
 
     // Color picker sync
     syncColorPicker(fields.bgColor, fields.bgColorPicker);
@@ -80,10 +159,144 @@
     // Avatar file upload
     fields.avatarFile.addEventListener('change', handleAvatarUpload);
 
-    // Load page list on startup
-    loadPages();
+    // Check auth on load
+    checkAuth();
 
-    // --- Functions ---
+    // ─── Auth Functions ──────────────────────────────────────
+
+    async function checkAuth() {
+        try {
+            const resp = await fetch('api.php?action=check-auth');
+            const data = await resp.json();
+
+            if (data.needs_setup) {
+                showView('setup');
+            } else if (data.authenticated) {
+                authType = data.auth_type;
+                enterAdmin(data.auth_type, data.slug);
+            } else {
+                showView('login');
+            }
+        } catch (err) {
+            showView('login');
+        }
+    }
+
+    async function handleSetup(e) {
+        e.preventDefault();
+        const pw = document.getElementById('setup-password').value;
+        const confirm = document.getElementById('setup-password-confirm').value;
+        const errorEl = document.getElementById('setup-error');
+
+        errorEl.textContent = '';
+
+        if (pw !== confirm) {
+            errorEl.textContent = 'Passwords do not match.';
+            return;
+        }
+        if (pw.length < 4) {
+            errorEl.textContent = 'Password must be at least 4 characters.';
+            return;
+        }
+
+        try {
+            const resp = await fetch('api.php?action=setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pw }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                authType = 'system';
+                enterAdmin('system');
+                toast('System configured successfully!', 'success');
+            } else {
+                errorEl.textContent = data.error || 'Setup failed.';
+            }
+        } catch (err) {
+            errorEl.textContent = 'Network error. Please try again.';
+        }
+    }
+
+    async function handleLoginSubmit(e) {
+        e.preventDefault();
+        const pw = document.getElementById('login-password').value;
+        const errorEl = document.getElementById('login-error');
+
+        errorEl.textContent = '';
+
+        try {
+            const resp = await fetch('api.php?action=login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pw }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                authType = data.auth_type;
+                enterAdmin(data.auth_type, data.slug);
+            } else {
+                errorEl.textContent = data.error || 'Invalid password.';
+            }
+        } catch (err) {
+            errorEl.textContent = 'Network error. Please try again.';
+        }
+    }
+
+    async function logout() {
+        try {
+            await fetch('api.php?action=logout', { method: 'POST' });
+        } catch (e) { /* ignore */ }
+        authType = null;
+        showView('login');
+        document.getElementById('login-password').value = '';
+        document.getElementById('login-error').textContent = '';
+    }
+
+    function showView(view) {
+        viewSetup.classList.remove('active');
+        viewLogin.classList.remove('active');
+        viewAdmin.classList.remove('active');
+        if (view === 'setup') viewSetup.classList.add('active');
+        else if (view === 'login') viewLogin.classList.add('active');
+        else if (view === 'admin') viewAdmin.classList.add('active');
+    }
+
+    function enterAdmin(type, slug) {
+        showView('admin');
+
+        if (type === 'system') {
+            authBadge.textContent = 'System Admin';
+            btnNewPage.style.display = '';
+        } else {
+            authBadge.textContent = 'Page: ' + (slug || '');
+            btnNewPage.style.display = 'none';
+        }
+
+        // Check URL for ?edit=slug parameter (from "Settings" link on page)
+        const urlParams = new URLSearchParams(window.location.search);
+        const editSlug = urlParams.get('edit');
+        if (editSlug) {
+            editPage(editSlug);
+            // Clean up URL
+            window.history.replaceState({}, '', 'admin.php');
+        } else if (type === 'user' && slug) {
+            // User-level auth: go directly to editing their page
+            editPage(slug);
+        } else {
+            loadPages();
+        }
+    }
+
+    // ─── View Management ─────────────────────────────────────
+
+    function showList() {
+        viewEditor.classList.remove('active');
+        viewList.classList.add('active');
+        loadPages();
+    }
 
     function syncColorPicker(textInput, pickerInput) {
         pickerInput.addEventListener('input', () => {
@@ -97,10 +310,18 @@
         });
     }
 
+    // ─── Page List ───────────────────────────────────────────
+
     async function loadPages() {
         try {
             const resp = await fetch('api.php?action=list');
             const data = await resp.json();
+
+            if (resp.status === 401) {
+                showView('login');
+                return;
+            }
+
             renderPageGrid(data.pages || []);
         } catch (err) {
             toast('Failed to load pages', 'error');
@@ -126,6 +347,10 @@
                 ? `<img src="${escapeHtml(page.avatar)}" alt="">`
                 : '&#128100;';
 
+            const deleteBtn = authType === 'system'
+                ? `<button class="btn btn-danger btn-small" onclick="window.lol.deletePage('${escapeHtml(page.slug)}')">Delete</button>`
+                : '';
+
             card.innerHTML = `
                 <div class="page-card-header">
                     <div class="page-card-avatar">${avatarHtml}</div>
@@ -138,7 +363,7 @@
                 <div class="page-card-actions">
                     <button class="btn btn-ghost btn-small" onclick="window.lol.editPage('${escapeHtml(page.slug)}')">Edit</button>
                     <a href="index.php?page=${encodeURIComponent(page.slug)}" target="_blank" class="btn btn-ghost btn-small">View</a>
-                    <button class="btn btn-danger btn-small" onclick="window.lol.deletePage('${escapeHtml(page.slug)}')">Delete</button>
+                    ${deleteBtn}
                 </div>
             `;
 
@@ -146,19 +371,16 @@
         });
     }
 
-    function showList() {
-        viewEditor.classList.remove('active');
-        viewList.classList.add('active');
-        loadPages();
-    }
+    // ─── Editor ──────────────────────────────────────────────
 
     window.showEditor = showEditor;
     function showEditor(config) {
         viewList.classList.remove('active');
         viewEditor.classList.add('active');
 
+        const passwordHint = document.getElementById('password-hint');
+
         if (config) {
-            // Editing existing page
             currentSlug = config.slug;
             editorTitle.textContent = 'Edit Page';
             fields.slug.value = config.slug;
@@ -166,6 +388,13 @@
             fields.title.value = config.title || '';
             fields.bio.value = config.bio || '';
             fields.avatar.value = config.avatar || '';
+            fields.userPassword.value = '';
+
+            if (config.has_user_password) {
+                passwordHint.textContent = 'A password is set. Leave blank to keep it, or enter a new one to change it.';
+            } else {
+                passwordHint.textContent = 'Set a password so this page\'s owner can sign in to edit their own page.';
+            }
 
             const theme = config.theme || {};
             fields.bgColor.value = theme.background_color || '#780016';
@@ -177,19 +406,16 @@
             fields.buttonRadius.value = theme.button_radius || '50px';
             fields.fontFamily.value = theme.font_family || "'Inter', sans-serif";
 
-            // Sync color pickers
             updatePickerFromText(fields.bgColor, fields.bgColorPicker);
             updatePickerFromText(fields.bgColorEnd, fields.bgColorEndPicker);
             updatePickerFromText(fields.textColor, fields.textColorPicker);
             updatePickerFromText(fields.buttonColor, fields.buttonColorPicker);
             updatePickerFromText(fields.buttonTextColor, fields.buttonTextColorPicker);
 
-            // Load links
             linksContainer.innerHTML = '';
             linkCounter = 0;
             (config.links || []).forEach(link => addLinkItem(link.title, link.url));
         } else {
-            // New page
             currentSlug = null;
             editorTitle.textContent = 'New Page';
             fields.slug.value = '';
@@ -197,6 +423,8 @@
             fields.title.value = '';
             fields.bio.value = '';
             fields.avatar.value = '';
+            fields.userPassword.value = '';
+            passwordHint.textContent = 'Set a password so this page\'s owner can sign in to edit their own page.';
 
             fields.bgColor.value = '#780016';
             fields.bgColorEnd.value = '#2d0008';
@@ -207,7 +435,6 @@
             fields.buttonRadius.value = '50px';
             fields.fontFamily.value = "'Inter', sans-serif";
 
-            // Sync color pickers
             updatePickerFromText(fields.bgColor, fields.bgColorPicker);
             updatePickerFromText(fields.bgColorEnd, fields.bgColorEndPicker);
             updatePickerFromText(fields.textColor, fields.textColorPicker);
@@ -234,10 +461,17 @@
         const item = document.createElement('div');
         item.className = 'link-item';
         item.dataset.id = id;
+
+        const icon = detectIcon(url);
+        const iconHtml = icon
+            ? `<div class="link-item-icon"><i class="${icon}"></i> detected</div>`
+            : '';
+
         item.innerHTML = `
             <div class="link-item-fields">
                 <input type="text" placeholder="Link title" value="${escapeAttr(title)}" class="link-title" data-id="${id}">
                 <input type="text" placeholder="https://example.com" value="${escapeAttr(url)}" class="link-url" data-id="${id}">
+                <div class="link-item-icon-indicator" data-id="${id}">${iconHtml}</div>
             </div>
             <div class="link-item-actions">
                 <button type="button" title="Move up" onclick="window.lol.moveLink(${id}, -1)">&uarr;</button>
@@ -248,11 +482,20 @@
 
         linksContainer.appendChild(item);
 
-        // Attach preview listeners
-        item.querySelectorAll('input').forEach(input => {
-            input.addEventListener('input', updatePreview);
+        // Attach preview listeners and icon detection on URL change
+        const urlInput = item.querySelector('.link-url');
+        const titleInput = item.querySelector('.link-title');
+        const iconIndicator = item.querySelector('.link-item-icon-indicator');
+
+        urlInput.addEventListener('input', () => {
+            const detectedIcon = detectIcon(urlInput.value);
+            iconIndicator.innerHTML = detectedIcon
+                ? `<div class="link-item-icon"><i class="${detectedIcon}"></i> detected</div>`
+                : '';
+            updatePreview();
         });
 
+        titleInput.addEventListener('input', updatePreview);
         updatePreview();
     }
 
@@ -266,7 +509,7 @@
             }
         });
 
-        return {
+        const data = {
             slug: fields.slug.value.trim().toLowerCase().replace(/[^a-z0-9\-]/g, ''),
             title: fields.title.value.trim(),
             bio: fields.bio.value.trim(),
@@ -283,7 +526,17 @@
             },
             links,
         };
+
+        // Only include password if one was entered
+        const pw = fields.userPassword.value;
+        if (pw) {
+            data.user_password = pw;
+        }
+
+        return data;
     }
+
+    // ─── Save / Edit / Delete ────────────────────────────────
 
     async function savePage() {
         const data = getFormData();
@@ -310,6 +563,12 @@
                 body: JSON.stringify(data),
             });
 
+            if (resp.status === 401) {
+                showView('login');
+                toast('Session expired. Please sign in again.', 'error');
+                return;
+            }
+
             const result = await resp.json();
 
             if (result.success) {
@@ -317,6 +576,9 @@
                 currentSlug = data.slug;
                 fields.slug.readOnly = true;
                 editorTitle.textContent = 'Edit Page';
+                fields.userPassword.value = '';
+                document.getElementById('password-hint').textContent =
+                    'A password is set. Leave blank to keep it, or enter a new one to change it.';
             } else {
                 toast(result.error || 'Failed to save page', 'error');
             }
@@ -353,6 +615,11 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ slug }),
             });
+
+            if (resp.status === 401) {
+                showView('login');
+                return;
+            }
 
             const result = await resp.json();
 
@@ -394,6 +661,8 @@
         }
     }
 
+    // ─── Avatar ──────────────────────────────────────────────
+
     function updateAvatarPreview() {
         const preview = document.getElementById('avatar-preview');
         const url = fields.avatar.value.trim();
@@ -432,15 +701,15 @@
             toast('Upload failed', 'error');
         }
 
-        // Reset file input
         fields.avatarFile.value = '';
     }
+
+    // ─── Live Preview ────────────────────────────────────────
 
     function updatePreview() {
         const data = getFormData();
         const theme = data.theme;
 
-        // Background
         let bg = theme.background_color || '#780016';
         if (theme.background_color_end) {
             bg = `linear-gradient(180deg, ${theme.background_color} 0%, ${theme.background_color_end} 100%)`;
@@ -465,6 +734,21 @@
             html += `<div class="p-bio">${escapeHtml(data.bio)}</div>`;
         }
 
+        // Social icons bar
+        const socialIcons = [];
+        data.links.forEach(link => {
+            const icon = detectIcon(link.url);
+            if (icon) socialIcons.push(icon);
+        });
+
+        if (socialIcons.length > 0) {
+            html += '<div class="p-social-icons">';
+            socialIcons.forEach(icon => {
+                html += `<div class="p-social-icon"><i class="${icon}"></i></div>`;
+            });
+            html += '</div>';
+        }
+
         // Links
         if (data.links.length > 0) {
             html += '<div class="p-links">';
@@ -478,7 +762,6 @@
                 } else if (theme.button_style === 'shadow') {
                     style += `background: ${theme.button_color}; color: ${theme.button_text_color}; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15);`;
                 } else {
-                    // outline
                     style += `background: transparent; color: ${theme.button_text_color}; border: 2px solid ${theme.button_color};`;
                 }
 
@@ -490,13 +773,12 @@
         previewContent.innerHTML = html;
     }
 
+    // ─── Utilities ───────────────────────────────────────────
+
     function toast(message, type) {
         toastEl.textContent = message;
         toastEl.className = `toast ${type} show`;
-
-        setTimeout(() => {
-            toastEl.classList.remove('show');
-        }, 3000);
+        setTimeout(() => { toastEl.classList.remove('show'); }, 3000);
     }
 
     function escapeHtml(str) {
@@ -510,5 +792,11 @@
     }
 
     // Expose functions for inline event handlers
-    window.lol = { editPage, deletePage, moveLink, removeLink };
+    window.lol = {
+        editPage,
+        deletePage,
+        moveLink,
+        removeLink,
+        showEditorNew: () => showEditor(),
+    };
 })();

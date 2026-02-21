@@ -31,6 +31,116 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
+/* ─── Auth Views (Setup & Login) ─────────────────────────── */
+.auth-view {
+    display: none;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg);
+}
+
+.auth-view.active {
+    display: flex;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 40px 32px;
+    text-align: center;
+}
+
+.auth-logo {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: -0.3px;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.auth-card h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.auth-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.auth-form {
+    text-align: left;
+}
+
+.auth-form .form-group {
+    margin-bottom: 16px;
+}
+
+.auth-form .form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--text-muted);
+}
+
+.auth-form .form-group input {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.auth-form .form-group input:focus {
+    border-color: var(--primary);
+}
+
+.auth-error {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--danger);
+    text-align: center;
+    min-height: 20px;
+}
+
+.auth-back-link {
+    display: inline-block;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.auth-back-link:hover {
+    color: var(--text);
+}
+
+/* ─── Admin View ─────────────────────────────────────────── */
+.admin-view {
+    display: none;
+}
+
+.admin-view.active {
+    display: block;
+}
+
 /* Header */
 .header {
     background: var(--bg-surface);
@@ -57,6 +167,21 @@ body {
     letter-spacing: -0.3px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.auth-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
 /* Main */
 .main {
     max-width: 1200px;
@@ -73,7 +198,7 @@ body {
     display: block;
 }
 
-/* Buttons */
+/* ─── Buttons ────────────────────────────────────────────── */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -132,7 +257,7 @@ body {
     justify-content: center;
 }
 
-/* Page Grid */
+/* ─── Page Grid ──────────────────────────────────────────── */
 .page-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -216,7 +341,7 @@ body {
     justify-content: center;
 }
 
-/* Empty State */
+/* ─── Empty State ────────────────────────────────────────── */
 .empty-state {
     text-align: center;
     padding: 80px 24px;
@@ -237,7 +362,7 @@ body {
     margin-bottom: 24px;
 }
 
-/* Editor Layout */
+/* ─── Editor Layout ──────────────────────────────────────── */
 .editor-layout {
     display: grid;
     grid-template-columns: 1fr 380px;
@@ -257,7 +382,7 @@ body {
     font-size: 18px;
 }
 
-/* Form */
+/* ─── Form ───────────────────────────────────────────────── */
 .form-section {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -293,6 +418,7 @@ body {
 
 .form-group input[type="text"],
 .form-group input[type="url"],
+.form-group input[type="password"],
 .form-group textarea,
 .form-group select {
     width: 100%;
@@ -398,7 +524,7 @@ body {
     cursor: pointer;
 }
 
-/* Links Editor */
+/* ─── Links Editor ───────────────────────────────────────── */
 .link-item {
     display: flex;
     gap: 8px;
@@ -434,6 +560,20 @@ body {
     border-color: var(--primary);
 }
 
+.link-item-icon {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.link-item-icon i {
+    font-size: 14px;
+    color: var(--primary);
+}
+
 .link-item-actions {
     display: flex;
     flex-direction: column;
@@ -466,7 +606,7 @@ body {
     color: #fff;
 }
 
-/* Preview Panel */
+/* ─── Preview Panel ──────────────────────────────────────── */
 .preview-panel {
     position: sticky;
     top: 84px;
@@ -528,6 +668,25 @@ body {
     line-height: 1.4;
 }
 
+.preview-content .p-social-icons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.preview-content .p-social-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
 .preview-content .p-links {
     width: 100%;
     display: flex;
@@ -550,7 +709,7 @@ body {
     transform: scale(1.02);
 }
 
-/* Toast */
+/* ─── Toast ──────────────────────────────────────────────── */
 .toast {
     position: fixed;
     bottom: 24px;
@@ -581,7 +740,7 @@ body {
     color: #fff;
 }
 
-/* Responsive */
+/* ─── Responsive ─────────────────────────────────────────── */
 @media (max-width: 900px) {
     .editor-layout {
         grid-template-columns: 1fr;
@@ -614,5 +773,17 @@ body {
 
     .header-inner {
         padding: 0;
+    }
+
+    .header-actions {
+        gap: 6px;
+    }
+
+    .auth-badge {
+        display: none;
+    }
+
+    .auth-card {
+        padding: 32px 20px;
     }
 }
