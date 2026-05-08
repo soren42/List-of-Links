@@ -2,7 +2,7 @@
  * List of Links (LoL) - Admin JavaScript
  *
  * Handles authentication, page management, form interactions,
- * icon detection, live preview, and API calls.
+ * icon detection, live preview, Linktree import, and API calls.
  */
 
 (function () {
@@ -61,22 +61,29 @@
         try {
             const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
             if (ICON_MAP[host]) return ICON_MAP[host];
-            // Try parent domain
             const parts = host.split('.');
             if (parts.length > 2) {
                 const parent = parts.slice(-2).join('.');
                 if (ICON_MAP[parent]) return ICON_MAP[parent];
             }
-        } catch (e) {
-            // invalid URL, ignore
-        }
+        } catch (e) { /* invalid URL */ }
         return null;
+    }
+
+    function normalizeUrlForComparison(url) {
+        try {
+            const u = new URL(url);
+            return (u.hostname + u.pathname).replace(/^www\./, '').replace(/\/+$/, '').toLowerCase();
+        } catch (e) {
+            return url.toLowerCase().replace(/\/+$/, '');
+        }
     }
 
     // ─── State ───────────────────────────────────────────────
     let currentSlug = null;
     let linkCounter = 0;
-    let authType = null; // 'system' | 'user' | null
+    let authType = null;
+    let importedData = null;
 
     // ─── DOM Elements ────────────────────────────────────────
     const viewSetup  = document.getElementById('view-setup');
@@ -93,12 +100,22 @@
     const toastEl        = document.getElementById('toast');
     const authBadge      = document.getElementById('auth-badge');
 
+    // Import modal elements
+    const importModal        = document.getElementById('import-modal');
+    const importStepUrl      = document.getElementById('import-step-url');
+    const importStepLoading  = document.getElementById('import-step-loading');
+    const importStepMerge    = document.getElementById('import-step-merge');
+    const importUrlInput     = document.getElementById('import-url');
+    const importUrlError     = document.getElementById('import-url-error');
+    const importMergeContent = document.getElementById('import-merge-content');
+
     // Buttons
     const btnNewPage = document.getElementById('btn-new-page');
     const btnBack    = document.getElementById('btn-back');
     const btnSave    = document.getElementById('btn-save');
     const btnAddLink = document.getElementById('btn-add-link');
     const btnLogout  = document.getElementById('btn-logout');
+    const btnImport  = document.getElementById('btn-import');
 
     // Form fields
     const fields = {
@@ -129,8 +146,17 @@
     btnSave.addEventListener('click', savePage);
     btnAddLink.addEventListener('click', () => addLinkItem('', ''));
     btnLogout.addEventListener('click', logout);
+    btnImport.addEventListener('click', showImportModal);
 
-    // Setup form
+    // Import modal buttons
+    document.getElementById('import-modal-close').addEventListener('click', hideImportModal);
+    document.getElementById('import-fetch-btn').addEventListener('click', fetchLinktreeProfile);
+    document.getElementById('import-back-btn').addEventListener('click', () => showImportStep('url'));
+    document.getElementById('import-apply-btn').addEventListener('click', applyMerge);
+    importModal.addEventListener('click', (e) => { if (e.target === importModal) hideImportModal(); });
+    importUrlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fetchLinktreeProfile(); } });
+
+    // Auth forms
     document.getElementById('setup-form').addEventListener('submit', handleSetup);
     document.getElementById('login-form').addEventListener('submit', handleLoginSubmit);
 
@@ -142,24 +168,17 @@
     syncColorPicker(fields.buttonTextColor, fields.buttonTextColorPicker);
 
     // Live preview updates
-    const previewInputs = [
-        fields.title, fields.bio, fields.avatar,
-        fields.bgColor, fields.bgColorEnd, fields.textColor,
-        fields.buttonColor, fields.buttonTextColor,
-        fields.buttonStyle, fields.buttonRadius, fields.fontFamily,
-    ];
-    previewInputs.forEach(input => {
+    [fields.title, fields.bio, fields.avatar, fields.bgColor, fields.bgColorEnd,
+     fields.textColor, fields.buttonColor, fields.buttonTextColor,
+     fields.buttonStyle, fields.buttonRadius, fields.fontFamily,
+    ].forEach(input => {
         input.addEventListener('input', updatePreview);
         input.addEventListener('change', updatePreview);
     });
 
-    // Avatar URL preview
     fields.avatar.addEventListener('input', updateAvatarPreview);
-
-    // Avatar file upload
     fields.avatarFile.addEventListener('change', handleAvatarUpload);
 
-    // Check auth on load
     checkAuth();
 
     // ─── Auth Functions ──────────────────────────────────────
@@ -168,18 +187,10 @@
         try {
             const resp = await fetch('api.php?action=check-auth');
             const data = await resp.json();
-
-            if (data.needs_setup) {
-                showView('setup');
-            } else if (data.authenticated) {
-                authType = data.auth_type;
-                enterAdmin(data.auth_type, data.slug);
-            } else {
-                showView('login');
-            }
-        } catch (err) {
-            showView('login');
-        }
+            if (data.needs_setup) showView('setup');
+            else if (data.authenticated) { authType = data.auth_type; enterAdmin(data.auth_type, data.slug); }
+            else showView('login');
+        } catch (err) { showView('login'); }
     }
 
     async function handleSetup(e) {
@@ -187,68 +198,38 @@
         const pw = document.getElementById('setup-password').value;
         const confirm = document.getElementById('setup-password-confirm').value;
         const errorEl = document.getElementById('setup-error');
-
         errorEl.textContent = '';
-
-        if (pw !== confirm) {
-            errorEl.textContent = 'Passwords do not match.';
-            return;
-        }
-        if (pw.length < 4) {
-            errorEl.textContent = 'Password must be at least 4 characters.';
-            return;
-        }
-
+        if (pw !== confirm) { errorEl.textContent = 'Passwords do not match.'; return; }
+        if (pw.length < 4) { errorEl.textContent = 'Password must be at least 4 characters.'; return; }
         try {
             const resp = await fetch('api.php?action=setup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: pw }),
             });
             const data = await resp.json();
-
-            if (data.success) {
-                authType = 'system';
-                enterAdmin('system');
-                toast('System configured successfully!', 'success');
-            } else {
-                errorEl.textContent = data.error || 'Setup failed.';
-            }
-        } catch (err) {
-            errorEl.textContent = 'Network error. Please try again.';
-        }
+            if (data.success) { authType = 'system'; enterAdmin('system'); toast('System configured successfully!', 'success'); }
+            else errorEl.textContent = data.error || 'Setup failed.';
+        } catch (err) { errorEl.textContent = 'Network error. Please try again.'; }
     }
 
     async function handleLoginSubmit(e) {
         e.preventDefault();
         const pw = document.getElementById('login-password').value;
         const errorEl = document.getElementById('login-error');
-
         errorEl.textContent = '';
-
         try {
             const resp = await fetch('api.php?action=login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password: pw }),
             });
             const data = await resp.json();
-
-            if (data.success) {
-                authType = data.auth_type;
-                enterAdmin(data.auth_type, data.slug);
-            } else {
-                errorEl.textContent = data.error || 'Invalid password.';
-            }
-        } catch (err) {
-            errorEl.textContent = 'Network error. Please try again.';
-        }
+            if (data.success) { authType = data.auth_type; enterAdmin(data.auth_type, data.slug); }
+            else errorEl.textContent = data.error || 'Invalid password.';
+        } catch (err) { errorEl.textContent = 'Network error. Please try again.'; }
     }
 
     async function logout() {
-        try {
-            await fetch('api.php?action=logout', { method: 'POST' });
-        } catch (e) { /* ignore */ }
+        try { await fetch('api.php?action=logout', { method: 'POST' }); } catch (e) {}
         authType = null;
         showView('login');
         document.getElementById('login-password').value = '';
@@ -266,28 +247,13 @@
 
     function enterAdmin(type, slug) {
         showView('admin');
-
-        if (type === 'system') {
-            authBadge.textContent = 'System Admin';
-            btnNewPage.style.display = '';
-        } else {
-            authBadge.textContent = 'Page: ' + (slug || '');
-            btnNewPage.style.display = 'none';
-        }
-
-        // Check URL for ?edit=slug parameter (from "Settings" link on page)
+        if (type === 'system') { authBadge.textContent = 'System Admin'; btnNewPage.style.display = ''; }
+        else { authBadge.textContent = 'Page: ' + (slug || ''); btnNewPage.style.display = 'none'; }
         const urlParams = new URLSearchParams(window.location.search);
         const editSlug = urlParams.get('edit');
-        if (editSlug) {
-            editPage(editSlug);
-            // Clean up URL
-            window.history.replaceState({}, '', 'admin.php');
-        } else if (type === 'user' && slug) {
-            // User-level auth: go directly to editing their page
-            editPage(slug);
-        } else {
-            loadPages();
-        }
+        if (editSlug) { editPage(editSlug); window.history.replaceState({}, '', 'admin.php'); }
+        else if (type === 'user' && slug) editPage(slug);
+        else loadPages();
     }
 
     // ─── View Management ─────────────────────────────────────
@@ -299,15 +265,8 @@
     }
 
     function syncColorPicker(textInput, pickerInput) {
-        pickerInput.addEventListener('input', () => {
-            textInput.value = pickerInput.value;
-            textInput.dispatchEvent(new Event('input'));
-        });
-        textInput.addEventListener('input', () => {
-            if (/^#[0-9a-fA-F]{6}$/.test(textInput.value)) {
-                pickerInput.value = textInput.value;
-            }
-        });
+        pickerInput.addEventListener('input', () => { textInput.value = pickerInput.value; textInput.dispatchEvent(new Event('input')); });
+        textInput.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(textInput.value)) pickerInput.value = textInput.value; });
     }
 
     // ─── Page List ───────────────────────────────────────────
@@ -315,42 +274,23 @@
     async function loadPages() {
         try {
             const resp = await fetch('api.php?action=list');
+            if (resp.status === 401) { showView('login'); return; }
             const data = await resp.json();
-
-            if (resp.status === 401) {
-                showView('login');
-                return;
-            }
-
             renderPageGrid(data.pages || []);
-        } catch (err) {
-            toast('Failed to load pages', 'error');
-        }
+        } catch (err) { toast('Failed to load pages', 'error'); }
     }
 
     function renderPageGrid(pages) {
-        if (pages.length === 0) {
-            pageGrid.style.display = 'none';
-            emptyState.style.display = 'block';
-            return;
-        }
-
+        if (pages.length === 0) { pageGrid.style.display = 'none'; emptyState.style.display = 'block'; return; }
         pageGrid.style.display = '';
         emptyState.style.display = 'none';
         pageGrid.innerHTML = '';
-
         pages.forEach(page => {
             const card = document.createElement('div');
             card.className = 'page-card';
-
-            const avatarHtml = page.avatar
-                ? `<img src="${escapeHtml(page.avatar)}" alt="">`
-                : '&#128100;';
-
+            const avatarHtml = page.avatar ? `<img src="${escapeHtml(page.avatar)}" alt="">` : '&#128100;';
             const deleteBtn = authType === 'system'
-                ? `<button class="btn btn-danger btn-small" onclick="window.lol.deletePage('${escapeHtml(page.slug)}')">Delete</button>`
-                : '';
-
+                ? `<button class="btn btn-danger btn-small" onclick="window.lol.deletePage('${escapeHtml(page.slug)}')">Delete</button>` : '';
             card.innerHTML = `
                 <div class="page-card-header">
                     <div class="page-card-avatar">${avatarHtml}</div>
@@ -364,9 +304,7 @@
                     <button class="btn btn-ghost btn-small" onclick="window.lol.editPage('${escapeHtml(page.slug)}')">Edit</button>
                     <a href="index.php?page=${encodeURIComponent(page.slug)}" target="_blank" class="btn btn-ghost btn-small">View</a>
                     ${deleteBtn}
-                </div>
-            `;
-
+                </div>`;
             pageGrid.appendChild(card);
         });
     }
@@ -377,7 +315,6 @@
     function showEditor(config) {
         viewList.classList.remove('active');
         viewEditor.classList.add('active');
-
         const passwordHint = document.getElementById('password-hint');
 
         if (config) {
@@ -389,13 +326,9 @@
             fields.bio.value = config.bio || '';
             fields.avatar.value = config.avatar || '';
             fields.userPassword.value = '';
-
-            if (config.has_user_password) {
-                passwordHint.textContent = 'A password is set. Leave blank to keep it, or enter a new one to change it.';
-            } else {
-                passwordHint.textContent = 'Set a password so this page\'s owner can sign in to edit their own page.';
-            }
-
+            passwordHint.textContent = config.has_user_password
+                ? 'A password is set. Leave blank to keep it, or enter a new one to change it.'
+                : 'Set a password so this page\'s owner can sign in to edit their own page.';
             const theme = config.theme || {};
             fields.bgColor.value = theme.background_color || '#780016';
             fields.bgColorEnd.value = theme.background_color_end || '';
@@ -405,13 +338,7 @@
             fields.buttonStyle.value = theme.button_style || 'outline';
             fields.buttonRadius.value = theme.button_radius || '50px';
             fields.fontFamily.value = theme.font_family || "'Inter', sans-serif";
-
-            updatePickerFromText(fields.bgColor, fields.bgColorPicker);
-            updatePickerFromText(fields.bgColorEnd, fields.bgColorEndPicker);
-            updatePickerFromText(fields.textColor, fields.textColorPicker);
-            updatePickerFromText(fields.buttonColor, fields.buttonColorPicker);
-            updatePickerFromText(fields.buttonTextColor, fields.buttonTextColorPicker);
-
+            syncAllPickers();
             linksContainer.innerHTML = '';
             linkCounter = 0;
             (config.links || []).forEach(link => addLinkItem(link.title, link.url));
@@ -425,7 +352,6 @@
             fields.avatar.value = '';
             fields.userPassword.value = '';
             passwordHint.textContent = 'Set a password so this page\'s owner can sign in to edit their own page.';
-
             fields.bgColor.value = '#780016';
             fields.bgColorEnd.value = '#2d0008';
             fields.textColor.value = '#FFFFFF';
@@ -434,26 +360,25 @@
             fields.buttonStyle.value = 'outline';
             fields.buttonRadius.value = '50px';
             fields.fontFamily.value = "'Inter', sans-serif";
-
-            updatePickerFromText(fields.bgColor, fields.bgColorPicker);
-            updatePickerFromText(fields.bgColorEnd, fields.bgColorEndPicker);
-            updatePickerFromText(fields.textColor, fields.textColorPicker);
-            updatePickerFromText(fields.buttonColor, fields.buttonColorPicker);
-            updatePickerFromText(fields.buttonTextColor, fields.buttonTextColorPicker);
-
+            syncAllPickers();
             linksContainer.innerHTML = '';
             linkCounter = 0;
             addLinkItem('', '');
         }
-
         updateAvatarPreview();
         updatePreview();
     }
 
+    function syncAllPickers() {
+        updatePickerFromText(fields.bgColor, fields.bgColorPicker);
+        updatePickerFromText(fields.bgColorEnd, fields.bgColorEndPicker);
+        updatePickerFromText(fields.textColor, fields.textColorPicker);
+        updatePickerFromText(fields.buttonColor, fields.buttonColorPicker);
+        updatePickerFromText(fields.buttonTextColor, fields.buttonTextColorPicker);
+    }
+
     function updatePickerFromText(textInput, pickerInput) {
-        if (/^#[0-9a-fA-F]{6}$/.test(textInput.value)) {
-            pickerInput.value = textInput.value;
-        }
+        if (/^#[0-9a-fA-F]{6}$/.test(textInput.value)) pickerInput.value = textInput.value;
     }
 
     function addLinkItem(title, url) {
@@ -461,12 +386,8 @@
         const item = document.createElement('div');
         item.className = 'link-item';
         item.dataset.id = id;
-
         const icon = detectIcon(url);
-        const iconHtml = icon
-            ? `<div class="link-item-icon"><i class="${icon}"></i> detected</div>`
-            : '';
-
+        const iconHtml = icon ? `<div class="link-item-icon"><i class="${icon}"></i> detected</div>` : '';
         item.innerHTML = `
             <div class="link-item-fields">
                 <input type="text" placeholder="Link title" value="${escapeAttr(title)}" class="link-title" data-id="${id}">
@@ -477,24 +398,16 @@
                 <button type="button" title="Move up" onclick="window.lol.moveLink(${id}, -1)">&uarr;</button>
                 <button type="button" title="Move down" onclick="window.lol.moveLink(${id}, 1)">&darr;</button>
                 <button type="button" class="btn-remove" title="Remove" onclick="window.lol.removeLink(${id})">&times;</button>
-            </div>
-        `;
-
+            </div>`;
         linksContainer.appendChild(item);
-
-        // Attach preview listeners and icon detection on URL change
         const urlInput = item.querySelector('.link-url');
         const titleInput = item.querySelector('.link-title');
         const iconIndicator = item.querySelector('.link-item-icon-indicator');
-
         urlInput.addEventListener('input', () => {
-            const detectedIcon = detectIcon(urlInput.value);
-            iconIndicator.innerHTML = detectedIcon
-                ? `<div class="link-item-icon"><i class="${detectedIcon}"></i> detected</div>`
-                : '';
+            const di = detectIcon(urlInput.value);
+            iconIndicator.innerHTML = di ? `<div class="link-item-icon"><i class="${di}"></i> detected</div>` : '';
             updatePreview();
         });
-
         titleInput.addEventListener('input', updatePreview);
         updatePreview();
     }
@@ -504,11 +417,8 @@
         linksContainer.querySelectorAll('.link-item').forEach(item => {
             const title = item.querySelector('.link-title').value.trim();
             const url = item.querySelector('.link-url').value.trim();
-            if (title || url) {
-                links.push({ title, url });
-            }
+            if (title || url) links.push({ title, url });
         });
-
         const data = {
             slug: fields.slug.value.trim().toLowerCase().replace(/[^a-z0-9\-]/g, ''),
             title: fields.title.value.trim(),
@@ -526,139 +436,316 @@
             },
             links,
         };
-
-        // Only include password if one was entered
         const pw = fields.userPassword.value;
-        if (pw) {
-            data.user_password = pw;
+        if (pw) data.user_password = pw;
+        return data;
+    }
+
+    function isFormEmpty() {
+        return !fields.slug.value.trim() && !fields.title.value.trim();
+    }
+
+    // ─── Import from Linktree ────────────────────────────────
+
+    function showImportModal() {
+        importedData = null;
+        importUrlInput.value = '';
+        importUrlError.textContent = '';
+        showImportStep('url');
+        importModal.classList.add('active');
+        importUrlInput.focus();
+    }
+
+    function hideImportModal() {
+        importModal.classList.remove('active');
+    }
+
+    function showImportStep(step) {
+        importStepUrl.classList.remove('active');
+        importStepLoading.classList.remove('active');
+        importStepMerge.classList.remove('active');
+        if (step === 'url') importStepUrl.classList.add('active');
+        else if (step === 'loading') importStepLoading.classList.add('active');
+        else if (step === 'merge') importStepMerge.classList.add('active');
+    }
+
+    async function fetchLinktreeProfile() {
+        const url = importUrlInput.value.trim();
+        if (!url) { importUrlError.textContent = 'Please enter a Linktree URL.'; return; }
+        importUrlError.textContent = '';
+        showImportStep('loading');
+
+        try {
+            const resp = await fetch('api.php?action=import-linktree', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url }),
+            });
+            if (resp.status === 401) { hideImportModal(); showView('login'); return; }
+            const result = await resp.json();
+            if (!result.success) {
+                importUrlError.textContent = result.error || 'Import failed.';
+                showImportStep('url');
+                return;
+            }
+
+            importedData = result.data;
+
+            if (isFormEmpty()) {
+                applyImportDirect(importedData);
+                hideImportModal();
+                toast('Imported from Linktree!', 'success');
+                return;
+            }
+
+            buildMergeUI(importedData);
+            showImportStep('merge');
+        } catch (err) {
+            importUrlError.textContent = 'Network error. Please try again.';
+            showImportStep('url');
+        }
+    }
+
+    function applyImportDirect(data) {
+        if (data.suggested_slug && !fields.slug.readOnly) fields.slug.value = data.suggested_slug;
+        if (data.title) fields.title.value = data.title;
+        if (data.bio) fields.bio.value = data.bio;
+        if (data.avatar) fields.avatar.value = data.avatar;
+
+        const t = data.theme || {};
+        if (t.background_color) fields.bgColor.value = t.background_color;
+        if (t.background_color_end) fields.bgColorEnd.value = t.background_color_end;
+        if (t.text_color) fields.textColor.value = t.text_color;
+        if (t.button_color) fields.buttonColor.value = t.button_color;
+        if (t.button_text_color) fields.buttonTextColor.value = t.button_text_color;
+        if (t.button_style) fields.buttonStyle.value = t.button_style;
+        if (t.button_radius) fields.buttonRadius.value = t.button_radius;
+        syncAllPickers();
+
+        linksContainer.innerHTML = '';
+        linkCounter = 0;
+        (data.links || []).forEach(l => addLinkItem(l.title, l.url));
+
+        updateAvatarPreview();
+        updatePreview();
+    }
+
+    function buildMergeUI(data) {
+        const current = getFormData();
+        let html = '';
+
+        // Profile fields
+        html += '<div class="merge-section"><div class="merge-section-title">Profile Information</div>';
+        html += buildFieldMerge('title', 'Title', current.title, data.title);
+        html += buildFieldMerge('bio', 'Bio', current.bio, data.bio);
+        html += buildFieldMerge('avatar', 'Avatar', current.avatar, data.avatar);
+        html += '</div>';
+
+        // Theme
+        html += '<div class="merge-section"><div class="merge-section-title">Theme</div>';
+        html += '<div class="merge-field">';
+        const themeSame = JSON.stringify(current.theme) === JSON.stringify(data.theme);
+        if (themeSame) {
+            html += '<div class="merge-field-label">Themes are identical</div>';
+            html += '<input type="hidden" name="merge-theme" value="keep">';
+        } else {
+            html += '<div class="merge-option"><label>';
+            html += '<input type="radio" name="merge-theme" value="keep" checked> ';
+            html += '<span class="merge-option-label">Keep current theme' + buildThemeSwatches(current.theme) + '</span>';
+            html += '</label></div>';
+            html += '<div class="merge-option"><label>';
+            html += '<input type="radio" name="merge-theme" value="import"> ';
+            html += '<span class="merge-option-label">Use imported theme' + buildThemeSwatches(data.theme) + '</span>';
+            html += '</label></div>';
+        }
+        html += '</div></div>';
+
+        // Links
+        html += '<div class="merge-section"><div class="merge-section-title">Links</div>';
+        html += '<div class="merge-field">';
+        html += '<div class="merge-field-label">Merge Strategy</div>';
+        html += '<div class="merge-option"><label><input type="radio" name="merge-links-strategy" value="merge" checked> ';
+        html += '<span class="merge-option-label">Merge &mdash; keep current links and add new imported ones</span></label></div>';
+        html += '<div class="merge-option"><label><input type="radio" name="merge-links-strategy" value="replace"> ';
+        html += '<span class="merge-option-label">Replace &mdash; remove current links, use imported only</span></label></div>';
+        html += '<div class="merge-option"><label><input type="radio" name="merge-links-strategy" value="keep"> ';
+        html += '<span class="merge-option-label">Keep current &mdash; don\'t change links</span></label></div>';
+        html += '</div>';
+
+        const currentUrls = new Set(current.links.map(l => normalizeUrlForComparison(l.url)));
+        if (data.links && data.links.length > 0) {
+            html += '<div class="merge-field" id="merge-links-list">';
+            html += '<div class="merge-field-label">Imported Links</div>';
+            data.links.forEach((link, i) => {
+                const isDuplicate = currentUrls.has(normalizeUrlForComparison(link.url));
+                const badge = isDuplicate
+                    ? '<span class="merge-option-badge duplicate">duplicate</span>'
+                    : '<span class="merge-option-badge new">new</span>';
+                html += `<div class="merge-link-item">
+                    <label>
+                        <input type="checkbox" name="merge-link-${i}" ${isDuplicate ? '' : 'checked'} data-index="${i}">
+                        <span>
+                            <span class="merge-link-title">${escapeHtml(link.title)}</span> ${badge}<br>
+                            <span class="merge-link-url">${escapeHtml(link.url)}</span>
+                        </span>
+                    </label>
+                </div>`;
+            });
+            html += '</div>';
+        }
+        html += '</div>';
+
+        importMergeContent.innerHTML = html;
+    }
+
+    function buildFieldMerge(name, label, currentVal, importedVal) {
+        let html = '<div class="merge-field">';
+        html += `<div class="merge-field-label">${escapeHtml(label)}</div>`;
+        const same = currentVal === importedVal;
+        const currentEmpty = !currentVal;
+
+        if (same) {
+            html += '<div class="merge-option"><span class="merge-option-label" style="color:var(--text-muted)">Values are identical</span></div>';
+            html += `<input type="hidden" name="merge-${name}" value="keep">`;
+        } else if (currentEmpty && importedVal) {
+            html += `<input type="hidden" name="merge-${name}" value="import">`;
+            html += `<div class="merge-option"><span class="merge-option-label">Will be set to: <span class="merge-option-value">${escapeHtml(truncate(importedVal, 120))}</span></span></div>`;
+        } else if (!importedVal) {
+            html += `<input type="hidden" name="merge-${name}" value="keep">`;
+            html += '<div class="merge-option"><span class="merge-option-label" style="color:var(--text-muted)">No imported value &mdash; keeping current</span></div>';
+        } else {
+            html += '<div class="merge-option"><label>';
+            html += `<input type="radio" name="merge-${name}" value="keep" checked> `;
+            html += `<span class="merge-option-label">Keep current<div class="merge-option-value">${escapeHtml(truncate(currentVal, 120))}</div></span>`;
+            html += '</label></div>';
+            html += '<div class="merge-option"><label>';
+            html += `<input type="radio" name="merge-${name}" value="import"> `;
+            html += `<span class="merge-option-label">Use imported<div class="merge-option-value">${escapeHtml(truncate(importedVal, 120))}</div></span>`;
+            html += '</label></div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function buildThemeSwatches(theme) {
+        const colors = [theme.background_color, theme.background_color_end, theme.text_color, theme.button_color].filter(Boolean);
+        let html = '<div class="merge-theme-preview">';
+        colors.forEach(c => { html += `<div class="merge-theme-swatch" style="background:${escapeHtml(c)}" title="${escapeHtml(c)}"></div>`; });
+        html += ` <span style="font-size:11px;color:var(--text-muted)">${escapeHtml(theme.button_style || 'outline')}</span>`;
+        html += '</div>';
+        return html;
+    }
+
+    function applyMerge() {
+        if (!importedData) return;
+
+        const getRadio = (name) => {
+            const el = importMergeContent.querySelector(`input[name="${name}"]:checked`);
+            if (el) return el.value;
+            const hidden = importMergeContent.querySelector(`input[name="${name}"][type="hidden"]`);
+            return hidden ? hidden.value : 'keep';
+        };
+
+        if (getRadio('merge-title') === 'import' && importedData.title) fields.title.value = importedData.title;
+        if (getRadio('merge-bio') === 'import' && importedData.bio) fields.bio.value = importedData.bio;
+        if (getRadio('merge-avatar') === 'import' && importedData.avatar) fields.avatar.value = importedData.avatar;
+
+        if (getRadio('merge-theme') === 'import' && importedData.theme) {
+            const t = importedData.theme;
+            if (t.background_color) fields.bgColor.value = t.background_color;
+            fields.bgColorEnd.value = t.background_color_end || '';
+            if (t.text_color) fields.textColor.value = t.text_color;
+            if (t.button_color) fields.buttonColor.value = t.button_color;
+            if (t.button_text_color) fields.buttonTextColor.value = t.button_text_color;
+            if (t.button_style) fields.buttonStyle.value = t.button_style;
+            if (t.button_radius) fields.buttonRadius.value = t.button_radius;
+            syncAllPickers();
         }
 
-        return data;
+        const strategy = getRadio('merge-links-strategy');
+        if (strategy === 'replace') {
+            linksContainer.innerHTML = '';
+            linkCounter = 0;
+            (importedData.links || []).forEach(l => addLinkItem(l.title, l.url));
+        } else if (strategy === 'merge') {
+            const checkboxes = importMergeContent.querySelectorAll('input[type="checkbox"][name^="merge-link-"]');
+            checkboxes.forEach(cb => {
+                if (!cb.checked) return;
+                const idx = parseInt(cb.dataset.index);
+                const link = importedData.links[idx];
+                if (link) addLinkItem(link.title, link.url);
+            });
+        }
+
+        hideImportModal();
+        updateAvatarPreview();
+        updatePreview();
+        toast('Import applied!', 'success');
     }
 
     // ─── Save / Edit / Delete ────────────────────────────────
 
     async function savePage() {
         const data = getFormData();
-
-        if (!data.slug) {
-            toast('Please enter a page slug', 'error');
-            fields.slug.focus();
-            return;
-        }
-
-        if (!data.title) {
-            toast('Please enter a display title', 'error');
-            fields.title.focus();
-            return;
-        }
-
+        if (!data.slug) { toast('Please enter a page slug', 'error'); fields.slug.focus(); return; }
+        if (!data.title) { toast('Please enter a display title', 'error'); fields.title.focus(); return; }
         btnSave.disabled = true;
         btnSave.textContent = 'Saving...';
-
         try {
             const resp = await fetch('api.php?action=save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
-
-            if (resp.status === 401) {
-                showView('login');
-                toast('Session expired. Please sign in again.', 'error');
-                return;
-            }
-
+            if (resp.status === 401) { showView('login'); toast('Session expired. Please sign in again.', 'error'); return; }
             const result = await resp.json();
-
             if (result.success) {
                 toast('Page saved successfully!', 'success');
                 currentSlug = data.slug;
                 fields.slug.readOnly = true;
                 editorTitle.textContent = 'Edit Page';
                 fields.userPassword.value = '';
-                document.getElementById('password-hint').textContent =
-                    'A password is set. Leave blank to keep it, or enter a new one to change it.';
-            } else {
-                toast(result.error || 'Failed to save page', 'error');
-            }
-        } catch (err) {
-            toast('Network error. Please try again.', 'error');
-        } finally {
-            btnSave.disabled = false;
-            btnSave.textContent = 'Save Page';
-        }
+                document.getElementById('password-hint').textContent = 'A password is set. Leave blank to keep it, or enter a new one to change it.';
+            } else toast(result.error || 'Failed to save page', 'error');
+        } catch (err) { toast('Network error. Please try again.', 'error'); }
+        finally { btnSave.disabled = false; btnSave.textContent = 'Save Page'; }
     }
 
     async function editPage(slug) {
         try {
             const resp = await fetch(`api.php?action=get&slug=${encodeURIComponent(slug)}`);
             const data = await resp.json();
-
-            if (data.error) {
-                toast(data.error, 'error');
-                return;
-            }
-
+            if (data.error) { toast(data.error, 'error'); return; }
             showEditor(data);
-        } catch (err) {
-            toast('Failed to load page', 'error');
-        }
+        } catch (err) { toast('Failed to load page', 'error'); }
     }
 
     async function deletePage(slug) {
         if (!confirm(`Delete page "${slug}"? This cannot be undone.`)) return;
-
         try {
             const resp = await fetch('api.php?action=delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ slug }),
             });
-
-            if (resp.status === 401) {
-                showView('login');
-                return;
-            }
-
+            if (resp.status === 401) { showView('login'); return; }
             const result = await resp.json();
-
-            if (result.success) {
-                toast('Page deleted', 'success');
-                loadPages();
-            } else {
-                toast(result.error || 'Failed to delete page', 'error');
-            }
-        } catch (err) {
-            toast('Network error', 'error');
-        }
+            if (result.success) { toast('Page deleted', 'success'); loadPages(); }
+            else toast(result.error || 'Failed to delete page', 'error');
+        } catch (err) { toast('Network error', 'error'); }
     }
 
     function moveLink(id, direction) {
         const items = Array.from(linksContainer.querySelectorAll('.link-item'));
         const index = items.findIndex(el => parseInt(el.dataset.id) === id);
         const targetIndex = index + direction;
-
         if (targetIndex < 0 || targetIndex >= items.length) return;
-
-        const item = items[index];
-        const target = items[targetIndex];
-
-        if (direction === -1) {
-            linksContainer.insertBefore(item, target);
-        } else {
-            linksContainer.insertBefore(target, item);
-        }
-
+        if (direction === -1) linksContainer.insertBefore(items[index], items[targetIndex]);
+        else linksContainer.insertBefore(items[targetIndex], items[index]);
         updatePreview();
     }
 
     function removeLink(id) {
         const item = linksContainer.querySelector(`.link-item[data-id="${id}"]`);
-        if (item) {
-            item.remove();
-            updatePreview();
-        }
+        if (item) { item.remove(); updatePreview(); }
     }
 
     // ─── Avatar ──────────────────────────────────────────────
@@ -666,41 +753,21 @@
     function updateAvatarPreview() {
         const preview = document.getElementById('avatar-preview');
         const url = fields.avatar.value.trim();
-
-        if (url) {
-            preview.innerHTML = `<img src="${escapeHtml(url)}" alt="Avatar" onerror="this.parentElement.innerHTML='<span class=\\'avatar-placeholder\\'>?</span>'">`;
-        } else {
-            preview.innerHTML = '<span class="avatar-placeholder">?</span>';
-        }
+        if (url) preview.innerHTML = `<img src="${escapeHtml(url)}" alt="Avatar" onerror="this.parentElement.innerHTML='<span class=\\'avatar-placeholder\\'>?</span>'">`;
+        else preview.innerHTML = '<span class="avatar-placeholder">?</span>';
     }
 
     async function handleAvatarUpload() {
         const file = fields.avatarFile.files[0];
         if (!file) return;
-
         const formData = new FormData();
         formData.append('avatar', file);
-
         try {
-            const resp = await fetch('api.php?action=upload', {
-                method: 'POST',
-                body: formData,
-            });
-
+            const resp = await fetch('api.php?action=upload', { method: 'POST', body: formData });
             const result = await resp.json();
-
-            if (result.success) {
-                fields.avatar.value = result.url;
-                updateAvatarPreview();
-                updatePreview();
-                toast('Image uploaded', 'success');
-            } else {
-                toast(result.error || 'Upload failed', 'error');
-            }
-        } catch (err) {
-            toast('Upload failed', 'error');
-        }
-
+            if (result.success) { fields.avatar.value = result.url; updateAvatarPreview(); updatePreview(); toast('Image uploaded', 'success'); }
+            else toast(result.error || 'Upload failed', 'error');
+        } catch (err) { toast('Upload failed', 'error'); }
         fields.avatarFile.value = '';
     }
 
@@ -709,67 +776,37 @@
     function updatePreview() {
         const data = getFormData();
         const theme = data.theme;
-
         let bg = theme.background_color || '#780016';
-        if (theme.background_color_end) {
-            bg = `linear-gradient(180deg, ${theme.background_color} 0%, ${theme.background_color_end} 100%)`;
-        }
-
+        if (theme.background_color_end) bg = `linear-gradient(180deg, ${theme.background_color} 0%, ${theme.background_color_end} 100%)`;
         previewContent.style.background = bg;
         previewContent.style.color = theme.text_color || '#FFFFFF';
         previewContent.style.fontFamily = theme.font_family || "'Inter', sans-serif";
 
         let html = '';
-
-        // Avatar
-        if (data.avatar) {
-            html += `<div class="p-avatar"><img src="${escapeHtml(data.avatar)}" alt="" onerror="this.parentElement.style.display='none'"></div>`;
-        }
-
-        // Title
+        if (data.avatar) html += `<div class="p-avatar"><img src="${escapeHtml(data.avatar)}" alt="" onerror="this.parentElement.style.display='none'"></div>`;
         html += `<div class="p-title">${escapeHtml(data.title || 'Page Title')}</div>`;
+        if (data.bio) html += `<div class="p-bio">${escapeHtml(data.bio)}</div>`;
 
-        // Bio
-        if (data.bio) {
-            html += `<div class="p-bio">${escapeHtml(data.bio)}</div>`;
-        }
-
-        // Social icons bar
         const socialIcons = [];
-        data.links.forEach(link => {
-            const icon = detectIcon(link.url);
-            if (icon) socialIcons.push(icon);
-        });
-
+        data.links.forEach(link => { const icon = detectIcon(link.url); if (icon) socialIcons.push(icon); });
         if (socialIcons.length > 0) {
             html += '<div class="p-social-icons">';
-            socialIcons.forEach(icon => {
-                html += `<div class="p-social-icon"><i class="${icon}"></i></div>`;
-            });
+            socialIcons.forEach(icon => { html += `<div class="p-social-icon"><i class="${icon}"></i></div>`; });
             html += '</div>';
         }
 
-        // Links
         if (data.links.length > 0) {
             html += '<div class="p-links">';
             data.links.forEach(link => {
                 if (!link.title && !link.url) return;
-
                 let style = `border-radius: ${theme.button_radius || '50px'}; `;
-
-                if (theme.button_style === 'filled') {
-                    style += `background: ${theme.button_color}; color: ${theme.button_text_color}; border: 2px solid transparent;`;
-                } else if (theme.button_style === 'shadow') {
-                    style += `background: ${theme.button_color}; color: ${theme.button_text_color}; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15);`;
-                } else {
-                    style += `background: transparent; color: ${theme.button_text_color}; border: 2px solid ${theme.button_color};`;
-                }
-
+                if (theme.button_style === 'filled') style += `background: ${theme.button_color}; color: ${theme.button_text_color}; border: 2px solid transparent;`;
+                else if (theme.button_style === 'shadow') style += `background: ${theme.button_color}; color: ${theme.button_text_color}; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.15);`;
+                else style += `background: transparent; color: ${theme.button_text_color}; border: 2px solid ${theme.button_color};`;
                 html += `<div class="p-link" style="${style}">${escapeHtml(link.title || link.url)}</div>`;
             });
             html += '</div>';
         }
-
         previewContent.innerHTML = html;
     }
 
@@ -781,22 +818,9 @@
         setTimeout(() => { toastEl.classList.remove('show'); }, 3000);
     }
 
-    function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
+    function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
+    function escapeAttr(str) { return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function truncate(str, len) { return str.length > len ? str.substring(0, len) + '...' : str; }
 
-    function escapeAttr(str) {
-        return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
-    // Expose functions for inline event handlers
-    window.lol = {
-        editPage,
-        deletePage,
-        moveLink,
-        removeLink,
-        showEditorNew: () => showEditor(),
-    };
+    window.lol = { editPage, deletePage, moveLink, removeLink, showEditorNew: () => showEditor() };
 })();

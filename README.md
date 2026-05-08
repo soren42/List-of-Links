@@ -15,6 +15,7 @@ A self-hosted, Linktree-style link page application. Create customizable "list o
   - **No pages configured** → Redirects to the setup/admin interface.
   - **One page** → Displays that page directly.
   - **Multiple pages** → Shows a directory listing of all pages.
+- **Import from Linktree** — One-click import of an existing Linktree profile: scrapes links, avatar, bio, and theme settings. For existing pages, a merge dialog lets you resolve each conflict (keep current, use imported, or merge links).
 - **Responsive Design** — Mobile-first layout for both link pages and the admin interface.
 - **JSON Configuration** — All page data is stored as simple JSON files — no database required.
 
@@ -92,6 +93,20 @@ Then open `http://localhost:8000` in your browser.
 - **Single page:** `https://yourdomain.com/?page=slug` or `https://yourdomain.com/slug` (with `.htaccess`).
 - **Directory:** If multiple pages exist and no specific page is requested, a directory listing is shown.
 
+### Importing from Linktree
+
+You can import an existing Linktree profile directly into the editor:
+
+1. In the page editor (new or existing), click **Import from Linktree**.
+2. Enter the Linktree URL (e.g., `https://linktr.ee/username`, `linktr.ee/username`, or just `@username`).
+3. Click **Fetch Profile**. The system scrapes the Linktree page for profile info, links, avatar, and theme.
+4. **For new pages:** All fields are auto-populated immediately.
+5. **For existing pages:** A merge dialog appears where you can resolve conflicts:
+   - **Profile fields** (title, bio, avatar) — choose to keep current or use imported for each.
+   - **Theme** — choose to keep current theme or adopt the imported one (with color swatch preview).
+   - **Links** — choose a strategy: **Merge** (keep current + add new imported), **Replace** (imported only), or **Keep** (no changes). Individual imported links can be toggled on/off, and duplicates are auto-detected.
+6. Click **Apply Import**, then **Save Page** to persist.
+
 ### Per-Page Access
 
 Each page can have its own password, set in the admin editor. When a user signs in with a page password, they can only see and edit their own page. The system password always grants access to everything.
@@ -150,6 +165,7 @@ All endpoints are accessed via `api.php`.
 | POST | `?action=save` | Yes | Create or update a page |
 | POST | `?action=delete` | Yes | Delete a page |
 | POST | `?action=upload` | Yes | Upload an avatar image (multipart form) |
+| POST | `?action=import-linktree` | Yes | Scrape a Linktree profile and return parsed data |
 
 ## Supported Social Icons
 
